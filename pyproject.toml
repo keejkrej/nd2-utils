@@ -1,0 +1,23 @@
+[project]
+name = "nd2-utils"
+version = "0.1.0"
+description = "Utility tools for working with ND2 files"
+requires-python = ">=3.9"
+dependencies = [
+    "nd2[tiff]>=0.6.0",
+    "PySide6>=6.5.0", 
+    "tifffile>=2023.7.0",
+    "numpy>=1.24.0",
+    "xarray>=2023.1.0",
+    "dask[array]>=2023.1.0",
+    "tqdm>=4.64.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+nd2-gui = "nd2_utils.gui.main:main"
