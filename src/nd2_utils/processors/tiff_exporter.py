@@ -195,7 +195,7 @@ class TiffExporter(BaseWorkerThread):
         }
         
         # Use the wrapper method which handles all dimension collapsing
-        self._write_5d_tiff(data, metadata, pixel_size_x, pixel_size_y)
+        TiffExporter._write_5d_tiff(self.output_path, data, metadata, pixel_size_x, pixel_size_y)
     
     @staticmethod
     def export_file(nd2_path: str, output_path: str,
@@ -225,31 +225,21 @@ class TiffExporter(BaseWorkerThread):
             else:
                 data = data.astype(np.uint16)
         
-        # Write file
-        from tifffile import imwrite
-
-        # Get dimensions and flatten if 5D
-        if len(data.shape) == 5:
-            t, p, c, y, x = data.shape
-            # Flatten P×C for ImageJ
-            data = data.reshape(t, p * c, y, x)
-
-        # Build metadata with proper dimension labels
+        # Write file using shared write method
         metadata = {
-            'axes': 'TCYX',  # Tell viewers: Time, Channel, Y, X
-            'Description': f'Exported from ND2 file: {os.path.basename(nd2_path)}'
+            'description': f'Exported from ND2 file: {os.path.basename(nd2_path)}'
         }
+        TiffExporter._write_5d_tiff(output_path, data, metadata, pixel_size_x=1.0, pixel_size_y=1.0)
 
-        data = np.ascontiguousarray(data)
-        imwrite(output_path, data, metadata=metadata, bigtiff=True, ome=True)
-        
         logger.info(f"Successfully exported to: {output_path}")
         return output_path
     
-    def _write_5d_tiff(self, data_5d, metadata, pixel_size_x, pixel_size_y):
+    @staticmethod
+    def _write_5d_tiff(output_path, data_5d, metadata, pixel_size_x, pixel_size_y):
         """Write 5D data (T, P, C, Y, X) to TIFF with flattened P×C dimensions.
 
         Args:
+            output_path: Path where the TIFF file will be written
             data_5d: 5D numpy array with shape (T, P, C, Y, X)
             metadata: Metadata dictionary
             pixel_size_x: Pixel size in X direction (µm)
@@ -273,7 +263,7 @@ class TiffExporter(BaseWorkerThread):
 
         # Write BigTIFF file
         imwrite(
-            self.output_path,
+            output_path,
             data_to_write,
             bigtiff=True,
             metadata=tiff_metadata,
