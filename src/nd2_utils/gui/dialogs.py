@@ -3,16 +3,12 @@ Custom dialog widgets for the ND2 viewer GUI.
 """
 
 import logging
-import numpy as np
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QMessageBox, QDialogButtonBox, QGroupBox, QGridLayout
+    QDialog, QVBoxLayout, QLabel, QDialogButtonBox, QGroupBox, QGridLayout
 )
-from PySide6.QtCore import Qt
 
-from ..utils.dimensions import DimensionParser
 
 logger = logging.getLogger(__name__)
 

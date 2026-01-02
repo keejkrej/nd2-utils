@@ -2,117 +2,114 @@
 Dimension parsing and handling utilities for ND2 files.
 """
 
-import logging
-from typing import Dict, Any, List, Optional
-import numpy as np
 import itertools
+import logging
+from typing import Any, Dict, Optional
+
+import numpy as np
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
-
-try:
-    from tqdm import tqdm
-    TQDM_AVAILABLE = True
-except ImportError:
-    logger.warning("tqdm not available, progress bars will be disabled")
-    TQDM_AVAILABLE = False
 
 
 class DimensionParser:
     """Handles dimension parsing and validation for ND2 files."""
-    
+
     # Standard ND2 dimension order
-    STANDARD_AXES = ['T', 'P', 'C', 'Y', 'X']
-    
+    STANDARD_AXES = ["T", "P", "C", "Y", "X"]
+
     @staticmethod
     def parse_dimensions(xarray) -> Dict[str, Dict[str, Any]]:
         """Parse dimension information from xarray."""
         logger.debug("Parsing dimensions from xarray")
         logger.debug(f"xarray dims: {list(xarray.dims)}")
-        
+
         dimension_info = {}
         for axis in xarray.dims:
             dimension_info[axis] = {
-                'size': xarray.sizes.get(axis, 1),
-                'labels': []  # Can't get labels from xarray alone
+                "size": xarray.sizes.get(axis, 1),
+                "labels": [],  # Can't get labels from xarray alone
             }
             logger.debug(f"Axis {axis}: size={dimension_info[axis]['size']}")
-        
+
         return dimension_info
-    
+
     @staticmethod
     def validate_dimension_selection(
         dimensions: Dict[str, Dict[str, Any]],
         position: Optional[int] = None,
         channel: Optional[int] = None,
         time: Optional[int] = None,
-        z: Optional[int] = None
+        z: Optional[int] = None,
     ) -> Dict[str, int]:
         """Validate and return valid dimension selections."""
         logger.debug("Validating dimension selection")
-        
+
         slicers = {}
-        
-        if position is not None and 'P' in dimensions:
-            max_pos = dimensions['P']['size'] - 1
+
+        if position is not None and "P" in dimensions:
+            max_pos = dimensions["P"]["size"] - 1
             if 0 <= position <= max_pos:
-                slicers['P'] = position
+                slicers["P"] = position
                 logger.debug(f"Valid position slice: {position}")
             else:
                 logger.warning(f"Invalid position {position}, max is {max_pos}")
-        
-        if channel is not None and 'C' in dimensions:
-            max_chan = dimensions['C']['size'] - 1
+
+        if channel is not None and "C" in dimensions:
+            max_chan = dimensions["C"]["size"] - 1
             if 0 <= channel <= max_chan:
-                slicers['C'] = channel
+                slicers["C"] = channel
                 logger.debug(f"Valid channel slice: {channel}")
             else:
                 logger.warning(f"Invalid channel {channel}, max is {max_chan}")
-        
-        if time is not None and 'T' in dimensions:
-            max_time = dimensions['T']['size'] - 1
+
+        if time is not None and "T" in dimensions:
+            max_time = dimensions["T"]["size"] - 1
             if 0 <= time <= max_time:
-                slicers['T'] = time
+                slicers["T"] = time
                 logger.debug(f"Valid time slice: {time}")
             else:
                 logger.warning(f"Invalid time {time}, max is {max_time}")
-        
-        if z is not None and 'Z' in dimensions:
-            max_z = dimensions['Z']['size'] - 1
+
+        if z is not None and "Z" in dimensions:
+            max_z = dimensions["Z"]["size"] - 1
             if 0 <= z <= max_z:
-                slicers['Z'] = z
+                slicers["Z"] = z
                 logger.debug(f"Valid z slice: {z}")
             else:
                 logger.warning(f"Invalid z {z}, max is {max_z}")
-        
+
         return slicers
-    
+
     @staticmethod
-    def extract_data_with_progress(xarray, slicers, desc="Processing data") -> np.ndarray:
+    def extract_data_with_progress(
+        xarray, slicers, desc="Processing data"
+    ) -> np.ndarray:
         """Extract data in batches using isel wrapper with tqdm progress bar.
-        
+
         Handles multiple batch dimensions by creating all combinations and looping through them.
-        
+
         Args:
             xarray: The xarray DataArray to extract from
             slicers: Dictionary with dimension names as keys and list/tuple as values
                     e.g., {'P': 0, 'C': [0], 'T': [0, 100]} for single position,
                           single channel, all time points from index 0 to 99
             desc: Description for tqdm progress bar
-        
+
         Returns:
             numpy.ndarray with the extracted data
         """
         logger.debug(f"Batched extraction with slicers: {slicers}")
-        
+
         # Convert slicers to single values or ranges
         dim_indices = {}
         batch_dims = []
         fixed_dims = {}
-        
+
         for dim, value in slicers.items():
             if dim not in xarray.dims:
                 continue
-                
+
             if isinstance(value, (list, tuple)) and len(value) == 2:
                 # Range format: [start, end] -> range of indices (exclusive end)
                 start, end = value
@@ -135,27 +132,29 @@ class DimensionParser:
             else:
                 # Single value
                 fixed_dims[dim] = value
-        
+
         # Check if we need batch processing
         if not batch_dims:
             logger.debug(f"Single extraction with: {fixed_dims}")
             result = xarray.isel(fixed_dims, drop=False).compute()
             # Preserve original dtype from dask/xarray to prevent float64 promotion
-            if hasattr(result, 'dtype') and result.dtype != xarray.dtype:
+            if hasattr(result, "dtype") and result.dtype != xarray.dtype:
                 result = result.astype(xarray.dtype)
             return result
-        
+
         logger.debug(f"Batch dimensions: {batch_dims}")
         logger.debug(f"Fixed dimensions: {fixed_dims}")
-        
+
         # Generate all combinations of batch dimension indices
-        batch_combinations = list(itertools.product(
-            *[dim_indices[dim] for dim in batch_dims]
-        ))
-        
+        batch_combinations = list(
+            itertools.product(*[dim_indices[dim] for dim in batch_dims])
+        )
+
         total_combinations = len(batch_combinations)
-        logger.debug(f"Generated {total_combinations} combinations for {len(batch_dims)} batch dimensions")
-        
+        logger.debug(
+            f"Generated {total_combinations} combinations for {len(batch_dims)} batch dimensions"
+        )
+
         # Pre-allocate array directly in xarray.dims order (no transpose needed!)
         logger.debug("Pre-allocating result array in xarray.dims order")
 
@@ -171,11 +170,16 @@ class DimensionParser:
                 final_shape.append(xarray.sizes[dim])
 
         result_array = np.zeros(final_shape, dtype=xarray.dtype)
-        logger.debug(f"Pre-allocated array with shape: {result_array.shape}, dtype: {result_array.dtype}")
+        logger.debug(
+            f"Pre-allocated array with shape: {result_array.shape}, dtype: {result_array.dtype}"
+        )
 
         # Create mapping from original indices to result array indices
         index_maps = {
-            dim: {orig_idx: result_idx for result_idx, orig_idx in enumerate(dim_indices[dim])}
+            dim: {
+                orig_idx: result_idx
+                for result_idx, orig_idx in enumerate(dim_indices[dim])
+            }
             for dim in batch_dims
         }
 
@@ -183,7 +187,10 @@ class DimensionParser:
         dim_positions = {dim: i for i, dim in enumerate(xarray.dims)}
 
         # Single for loop writing directly into pre-allocated array
-        iterator = tqdm(batch_combinations, desc=f"{desc} ({','.join(batch_dims)})", disable=not TQDM_AVAILABLE)
+        iterator = tqdm(
+            batch_combinations,
+            desc=f"{desc} ({','.join(batch_dims)})",
+        )
 
         for combination in iterator:
             # Build slicers for this combination
@@ -195,7 +202,7 @@ class DimensionParser:
             chunk = xarray.isel(current_slicers, drop=False).compute()
 
             # Preserve original dtype from dask/xarray to prevent float64 promotion
-            if hasattr(chunk, 'dtype') and chunk.dtype != xarray.dtype:
+            if hasattr(chunk, "dtype") and chunk.dtype != xarray.dtype:
                 chunk = chunk.astype(xarray.dtype)
 
             # Build array indices in xarray.dims order
@@ -216,72 +223,86 @@ class DimensionParser:
         # No transpose needed - array is already in correct order!
         logger.debug(f"Final result shape: {result_array.shape}")
         return result_array
-    
+
     @staticmethod
-    def build_slicer_dict(position=None, channel=None, time=None, z=None, dimensions=None):
+    def build_slicer_dict(
+        position=None, channel=None, time=None, z=None, dimensions=None
+    ):
         """Build slicer dictionary from individual dimension selections.
-        
+
         Args:
             position: Single position index or [start, end] range, or None for all positions
-            channel: Single channel index or [start, end] range, or None for all channels  
+            channel: Single channel index or [start, end] range, or None for all channels
             time: Single time index or [start, end] range, or None for all time points
             z: Single z index or [start, end] range, or None for all z slices
             dimensions: Dimension info dictionary (needed for None -> full range conversion)
-            
+
         Returns:
             Dictionary with slicer ranges like {'P': [0, 1], 'C': [0, 3], 'T': [0, 50]}
         """
         slicers = {}
-        
+
         if dimensions is None:
             # Fallback - can't handle None selections without dimension info
             if position is not None:
-                slicers['P'] = position
+                slicers["P"] = position
             if channel is not None:
-                slicers['C'] = channel
+                slicers["C"] = channel
             if time is not None:
-                slicers['T'] = time
+                slicers["T"] = time
             if z is not None:
-                slicers['Z'] = z
+                slicers["Z"] = z
             return slicers
-        
+
         # Handle each dimension
-        if 'P' in dimensions:
+        if "P" in dimensions:
             if position is None:
-                slicers['P'] = (0, dimensions['P']['size'] - 1)  # Full range (inclusive)
+                slicers["P"] = (
+                    0,
+                    dimensions["P"]["size"] - 1,
+                )  # Full range (inclusive)
             else:
-                slicers['P'] = position
-                
-        if 'C' in dimensions:
+                slicers["P"] = position
+
+        if "C" in dimensions:
             if channel is None:
-                slicers['C'] = (0, dimensions['C']['size'] - 1)  # Full range (inclusive)
+                slicers["C"] = (
+                    0,
+                    dimensions["C"]["size"] - 1,
+                )  # Full range (inclusive)
             else:
-                slicers['C'] = channel
-                
-        if 'T' in dimensions:
+                slicers["C"] = channel
+
+        if "T" in dimensions:
             if time is None:
-                slicers['T'] = (0, dimensions['T']['size'] - 1)  # Full range (inclusive)
+                slicers["T"] = (
+                    0,
+                    dimensions["T"]["size"] - 1,
+                )  # Full range (inclusive)
             else:
-                slicers['T'] = time
-                
-        if 'Z' in dimensions:
+                slicers["T"] = time
+
+        if "Z" in dimensions:
             if z is None:
-                slicers['Z'] = (0, dimensions['Z']['size'] - 1)  # Full range (inclusive)
+                slicers["Z"] = (
+                    0,
+                    dimensions["Z"]["size"] - 1,
+                )  # Full range (inclusive)
             else:
-                slicers['Z'] = z
-        
+                slicers["Z"] = z
+
         logger.debug(f"Built slicer dict: {slicers}")
         return slicers
-    
+
     @staticmethod
     def ensure_5d_structure(data) -> tuple:
         """Ensure data has the expected 5D structure (T, P, C, Y, X)."""
         logger.debug(f"Ensuring 5D structure for data with shape: {data.shape}")
-        
+
         # Map existing dimensions to (T, P, C, Y, X) positions
         # If we have less than 5 dimensions, we need to pad in the middle positions
         # P and C should be padded in positions 1 and 2, not at the beginning
-        
+
         if len(data.shape) == 5:
             # Already 5D
             shape_order = list(data.shape)
@@ -306,39 +327,39 @@ class DimensionParser:
             while len(data.shape) < 5:
                 data = np.expand_dims(data, axis=0)
             return data
-        
+
         # Reshape to correct order if needed
         if len(data.shape) != len(shape_order):
             logger.debug(f"Reshaping from {data.shape} to {shape_order}")
             data = data.reshape(shape_order)
-        
+
         logger.debug(f"Final data shape: {data.shape}")
         return data
-    
+
     @staticmethod
     def get_dimension_limits(dimensions: Dict[str, Dict[str, Any]]) -> Dict[str, int]:
         """Get the maximum valid index for each available dimension."""
         limits = {}
-        
+
         for axis, dim_info in dimensions.items():
-            limits[axis] = dim_info['size'] - 1
+            limits[axis] = dim_info["size"] - 1
             logger.debug(f"Dimension {axis} limit: {limits[axis]}")
-        
+
         return limits
-    
+
     @staticmethod
     def get_dimension_info_text(dimensions: Dict[str, Dict[str, Any]]) -> str:
         """Format dimension information for display."""
         lines = []
         lines.append("=== Dimension Details ===")
-        
+
         for axis, dim_info in dimensions.items():
             lines.append(f"Axis {axis}:")
             lines.append(f"  Size: {dim_info['size']}")
-            if dim_info['labels']:
-                labels_text = dim_info['labels'][:5]
-                labels_text += ("..." if len(dim_info['labels']) > 5 else "")
+            if dim_info["labels"]:
+                labels_text = dim_info["labels"][:5]
+                labels_text += "..." if len(dim_info["labels"]) > 5 else ""
                 lines.append(f"  Labels: {labels_text}")
             lines.append("")
-        
-        return '\n'.join(lines)
+
+        return "\n".join(lines)

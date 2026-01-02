@@ -4,7 +4,6 @@ Test script to verify the nd2 API implementation is working correctly.
 """
 
 import nd2
-import numpy as np
 
 def test_imread_api():
     """Test that imread works with the correct parameters."""
