@@ -9,7 +9,6 @@ from typing import Dict, Any
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QApplication
 )
-from PySide6.QtCore import Qt
 
 from .components import (
     FileSelectionWidget, DimensionSelectionWidget,

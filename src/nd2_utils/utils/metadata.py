@@ -3,7 +3,7 @@ Metadata handling utilities for ND2 files.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class MetadataHandler:
                 logger.debug(f"Converted using dict(), got {len(attributes_dict)} items")
             except (TypeError, ValueError):
                 attributes_dict = {'raw_object': str(attrs_obj)}
-                logger.warning(f"Could not convert attrs to dict, using string representation")
+                logger.warning("Could not convert attrs to dict, using string representation")
         
         return attributes_dict
     

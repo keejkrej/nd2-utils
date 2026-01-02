@@ -3,7 +3,7 @@ Threading utilities for background operations.
 """
 
 import logging
-from typing import Callable, Any
+from typing import Callable
 from PySide6.QtCore import QThread, Signal
 
 logger = logging.getLogger(__name__)

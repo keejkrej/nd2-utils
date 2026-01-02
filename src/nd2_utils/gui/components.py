@@ -5,10 +5,10 @@ Reusable GUI components for ND2 viewer.
 from PySide6.QtWidgets import (
     QGroupBox, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QFileDialog,
-    QComboBox, QSpinBox, QCheckBox, QProgressBar,
-    QTabWidget, QMessageBox, QWidget
+    QCheckBox, QProgressBar,
+    QWidget
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
 
 
