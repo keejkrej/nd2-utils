@@ -179,14 +179,9 @@ class TiffExporter(BaseWorkerThread):
             raise ValueError(f"Expected 5D data, got {data.shape}")
         
         logger.info(f"Exporting with dimensions T={t}, P={p}, C={c}, Y={y}, X={x}")
-        
-        # Create metadata
-        metadata = {
-            'description': f'Exported from ND2 file: {os.path.basename(self.nd2_path)}'
-        }
-        
+
         # Use the wrapper method which handles all dimension collapsing
-        TiffExporter._write_tiff(self.output_path, data, metadata)
+        TiffExporter._write_tiff(self.output_path, data, os.path.basename(self.nd2_path))
     
     @staticmethod
     def export_file(nd2_path: str, output_path: str,
@@ -215,24 +210,21 @@ class TiffExporter(BaseWorkerThread):
                     data = np.zeros_like(data, dtype=np.uint16)
             else:
                 data = data.astype(np.uint16)
-        
+
         # Write file using shared write method
-        metadata = {
-            'description': f'Exported from ND2 file: {os.path.basename(nd2_path)}'
-        }
-        TiffExporter._write_tiff(output_path, data, metadata)
+        TiffExporter._write_tiff(output_path, data, os.path.basename(nd2_path))
 
         logger.info(f"Successfully exported to: {output_path}")
         return output_path
     
     @staticmethod
-    def _write_tiff(output_path, data_5d, metadata):
+    def _write_tiff(output_path, data_5d, source_filename):
         """Write 5D data (T, P, C, Y, X) to 4D TIFF with flattened P×C dimensions.
 
         Args:
             output_path: Path where the TIFF file will be written
             data_5d: 5D numpy array with shape (T, P, C, Y, X)
-            metadata: Metadata dictionary
+            source_filename: Name of the source ND2 file
         """
         from tifffile import imwrite
 
@@ -247,7 +239,7 @@ class TiffExporter(BaseWorkerThread):
         # Build metadata with proper dimension labels
         tiff_metadata = {
             'axes': 'TCYX',  # Tell viewers: Time, Channel, Y, X
-            'Description': metadata.get('description', 'ND2 export')
+            'Description': f'Exported from ND2 file: {source_filename}'
         }
 
         # Write BigTIFF file
