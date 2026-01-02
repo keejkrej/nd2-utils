@@ -11,6 +11,8 @@ dependencies = [
     "xarray>=2023.1.0",
     "dask[array]>=2023.1.0",
     "tqdm>=4.64.0",
+    "rich>=14.2.0",
+    "typer>=0.21.0",
 ]
 
 [tool.setuptools]
@@ -21,3 +23,4 @@ where = ["src"]
 
 [project.scripts]
 nd2-gui = "nd2_utils.gui.main:main"
+nd2-cli = "nd2_utils.cli.main:main"

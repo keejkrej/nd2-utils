@@ -6,11 +6,14 @@ import logging
 from typing import Callable
 
 from PySide6.QtCore import QThread, Signal
+from ..core.worker import AbstractWorker, OperationCancelled as CoreOperationCancelled
 
 logger = logging.getLogger(__name__)
 
+# Alias for backward compatibility
+OperationCancelled = CoreOperationCancelled
 
-class BaseWorkerThread(QThread):
+class BaseWorkerThread(QThread, AbstractWorker):
     """Base class for worker threads with common functionality."""
 
     # Common signals
@@ -19,32 +22,15 @@ class BaseWorkerThread(QThread):
     error = Signal(str)
 
     def __init__(self):
-        super().__init__()
-        self._is_cancelled = False
+        # Initialize both parents
+        QThread.__init__(self)
+        AbstractWorker.__init__(self)
 
-    def cancel(self):
-        """Cancel the operation."""
-        logger.debug("Worker thread cancelled")
-        self._is_cancelled = True
-
-    def is_cancelled(self) -> bool:
-        """Check if operation was cancelled."""
-        return self._is_cancelled
+    # Note: cancel(), is_cancelled(), and _check_cancelled() are inherited from AbstractWorker
 
     def run(self):
         """Override in subclasses to implement the actual work."""
         raise NotImplementedError("Subclasses must implement run() method")
-
-    def _check_cancelled(self):
-        """Check if operation was cancelled and raise exception if so."""
-        if self._is_cancelled:
-            raise OperationCancelled("Operation was cancelled by user")
-
-
-class OperationCancelled(Exception):
-    """Exception raised when an operation is cancelled."""
-
-    pass
 
 
 def progress_callback(total_steps: int) -> Callable[[int], None]:

@@ -12,12 +12,12 @@ import numpy as np
 from ..utils.dimensions import DimensionParser
 from ..utils.threading import BaseWorkerThread, OperationCancelled
 from . import nd2_processor
+from .export_logic import TiffExportLogic
 
 logger = logging.getLogger(__name__)
 
 
-# Module-level functions for TIFF export operations
-
+# Module-level functions for TIFF export operations remain for backward compatibility
 
 def export_to_tiff(
     nd2_path: str,
@@ -27,72 +27,31 @@ def export_to_tiff(
     time: Optional[tuple] = None,
     z: Optional[tuple] = None,
 ) -> str:
-    """Export ND2 file to TIFF format.
-
-    Args:
-        nd2_path: Path to the ND2 file
-        output_path: Path where the TIFF file will be written
-        position: Position range to export
-        channel: Channel range to export
-        time: Time range to export
-        z: Z-slice range to export
-
-    Returns:
-        Path to the exported TIFF file
-    """
-    logger.debug(f"Exporting ND2 file to TIFF: {nd2_path}")
-
-    # Load and process using nd2_processor functions
-    info = nd2_processor.load_file(nd2_path)
-
-    # Extract ND2 attributes for metadata
-    nd2_attrs = info.get("attributes", {})
-
-    data = nd2_processor.extract_subset(info, position, channel, time, z)
-
-    # Convert data type if needed
-    if data.dtype not in [np.uint8, np.uint16, np.float32, np.float64]:
-        logger.debug(f"Converting data type from {data.dtype} to uint16")
-        if data.dtype.kind == "f":
-            data_max = np.nanmax(data)
-            if data_max > 0:
-                data = (data / data_max * 65535).astype(np.uint16)
-            else:
-                data = np.zeros_like(data, dtype=np.uint16)
-        else:
-            data = data.astype(np.uint16)
-
-    # Build OME metadata from ND2 attributes
-    metadata = nd2_processor.build_ome_metadata(nd2_attrs, os.path.basename(nd2_path))
-
-    # Write file
-    write_tiff(output_path, data, metadata)
-
-    logger.info(f"Successfully exported to: {output_path}")
-    return output_path
+    """Export ND2 file to TIFF format."""
+    return TiffExportLogic.export(
+        nd2_path=nd2_path,
+        output_path=output_path,
+        position=position,
+        channel=channel,
+        time=time,
+        z=z
+    )
 
 
 def write_tiff(output_path: str, data_5d: np.ndarray, metadata: Dict[str, Any]):
-    """Write 5D data (T, P, C, Y, X) to 4D TIFF with flattened P×C dimensions.
-
-    Args:
-        output_path: Path where the TIFF file will be written
-        data_5d: 5D numpy array with shape (T, P, C, Y, X)
-        metadata: OME-TIFF metadata dictionary
-    """
+    """Write 5D data (T, P, C, Y, X) to 4D TIFF with flattened P×C dimensions."""
     from tifffile import imwrite
 
     shape = data_5d.shape
     t, p, c, y, x = shape
 
     # Flatten P×C dimensions for ImageJ compatibility (TCYX format)
-    # New shape: (T, P*C, Y, X)
     new_shape = (t, p * c, y, x)
     data_to_write = data_5d.reshape(new_shape)
 
-    # Add axes to metadata (structural information about the data)
+    # Add axes to metadata
     tiff_metadata = metadata.copy()
-    tiff_metadata["axes"] = "TCYX"  # Tell viewers: Time, Channel, Y, X
+    tiff_metadata["axes"] = "TCYX"
 
     # Write BigTIFF file
     imwrite(output_path, data_to_write, bigtiff=True, metadata=tiff_metadata, ome=True)
@@ -117,147 +76,26 @@ class TiffExporter(BaseWorkerThread):
         super().__init__()
         self.nd2_path = nd2_path
         self.output_path = output_path
-        self.position = position  # Can be None, (start, end), or (value, value)
-        self.channel = channel  # Can be None, (start, end), or (value, value)
-        self.time = time  # Can be None, (start, end), or (value, value)
-        self.z = z  # Can be None, (start, end), or (value, value)
+        self.position = position
+        self.channel = channel
+        self.time = time
+        self.z = z
 
     def run(self):
         """Export ND2 file to TIFF format."""
         try:
-            self._check_cancelled()
-            logger.info("Starting export process")
-
-            self.progress.emit(10)
-
-            self._check_cancelled()
-            # Load ND2 file
-            logger.debug("Calling nd2.imread with xarray=True, dask=True")
-            my_array = nd2.imread(self.nd2_path, xarray=True, dask=True)
-            logger.debug(f"Successfully loaded ND2 file with shape: {my_array.shape}")
-
-            self.progress.emit(20)
-
-            self._check_cancelled()
-            # Extract metadata
-            logger.debug("Extracting metadata from xarray attrs")
-            attrs = my_array.attrs.get("metadata", {})
-            nd2_attrs = attrs.get("attributes", {})
-
-            # Convert attributes if needed
-            if not isinstance(nd2_attrs, dict) and hasattr(nd2_attrs, "__dict__"):
-                nd2_attrs_dict = vars(nd2_attrs)
-            else:
-                nd2_attrs_dict = nd2_attrs if isinstance(nd2_attrs, dict) else {}
-
-            self.progress.emit(40)
-
-            self._check_cancelled()
-            # Extract data using slicer-based batched processing
-            logger.debug("Extracting data with slicer-based batched processing")
-            dimensions = DimensionParser.parse_dimensions(my_array)
-
-            # Build slicer dictionary - unselected dimensions become full ranges
-            slicers = DimensionParser.build_slicer_dict(
+            TiffExportLogic.export(
+                nd2_path=self.nd2_path,
+                output_path=self.output_path,
                 position=self.position,
                 channel=self.channel,
                 time=self.time,
                 z=self.z,
-                dimensions=dimensions,
+                signals=self,
+                check_cancelled=self._check_cancelled
             )
-
-            # Extract data using tqdm progress - tqdm handles its own progress display
-            data = DimensionParser.extract_data_with_progress(
-                my_array, slicers, desc="Extracting data"
-            )
-            logger.debug(f"Extracted data with shape: {data.shape}")
-
-            self._check_cancelled()
-            # Ensure proper data type
-            if not isinstance(data, np.ndarray):
-                logger.warning(
-                    f"Data is still not numpy array (type: {type(data)}), converting"
-                )
-                data = np.asarray(data)
-
-            self.progress.emit(60)
-
-            # Data should already be 5D from extraction
-            # No need to pad - ensure_5d_structure should only verify structure
-
-            self._check_cancelled()
-            # Convert data type if needed - preserve uint16 if possible
-            logger.debug(f"Input data dtype: {data.dtype}")
-
-            if data.dtype not in [np.uint8, np.uint16, np.float32]:
-                if data.dtype == np.float64:
-                    # If we got float64, convert to uint16 (likely from dask computation)
-                    logger.debug(f"Converting data type from {data.dtype} to uint16")
-                    data_max = np.nanmax(data)
-                    if data_max > 0:
-                        data = (data / data_max * 65535).astype(np.uint16)
-                    else:
-                        data = np.zeros_like(data, dtype=np.uint16)
-                elif data.dtype.kind != "f":
-                    # For integer types other than uint8/uint16
-                    data = data.astype(np.uint16)
-                else:
-                    # For float32 - keep as is
-                    pass
-            logger.debug(f"Final data dtype: {data.dtype}")
-
-            self.progress.emit(80)
-
-            self._check_cancelled()
-            # Write TIFF file
-            self._write_tiff_file(data, nd2_attrs_dict)
-
-            self.progress.emit(90)
-            self.finished.emit(self.output_path)
-
-            # Clean exit - thread will be cleaned up by event loop
-            return
-
         except OperationCancelled:
-            logger.debug("TIFF export cancelled")
-            self.error.emit("Export cancelled")
-        except Exception as e:
-            logger.exception(f"Error during export: {e}")
-            self.error.emit(f"Error exporting to TIFF: {str(e)}")
-
-    def _write_tiff_file(self, data: np.ndarray, nd2_attrs: Dict[str, Any]):
-        """Write the data to a TIFF file."""
-        logger.info(f"Writing TIFF file to: {self.output_path}")
-
-        # Ensure data is contiguous
-        data = np.ascontiguousarray(data)
-        logger.debug(f"Final data shape: {data.shape}, dtype: {data.dtype}")
-
-        # Handle data type conversion
-        if data.dtype not in [np.uint8, np.uint16, np.float32]:
-            logger.debug(f"Converting data type from {data.dtype} to uint16")
-            if data.dtype.kind == "f":
-                data_max = np.nanmax(data)
-                if data_max > 0:
-                    data = (data / data_max * 65535).astype(np.uint16)
-                else:
-                    data = np.zeros_like(data, dtype=np.uint16)
-            else:
-                data = data.astype(np.uint16)
-            logger.debug(f"Converted data to dtype: {data.dtype}")
-
-        # Get dimensions
-        if len(data.shape) == 5:
-            t, p, c, y, x = data.shape
-        else:
-            raise ValueError(f"Expected 5D data, got {data.shape}")
-
-        logger.info(f"Exporting with dimensions T={t}, P={p}, C={c}, Y={y}, X={x}")
-
-        # Build OME metadata from ND2 attributes
-        metadata = nd2_processor.build_ome_metadata(
-            nd2_attrs, os.path.basename(self.nd2_path)
-        )
-
-        # Write TIFF file with metadata
-        write_tiff(self.output_path, data, metadata)
+            pass
+        except Exception:
+            # Error signal emitted by TiffExportLogic
+            pass

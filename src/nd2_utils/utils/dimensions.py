@@ -4,7 +4,7 @@ Dimension parsing and handling utilities for ND2 files.
 
 import itertools
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Callable, Iterable
 
 import numpy as np
 from tqdm import tqdm
@@ -83,9 +83,9 @@ class DimensionParser:
 
     @staticmethod
     def extract_data_with_progress(
-        xarray, slicers, desc="Processing data"
+        xarray, slicers, desc="Processing data", progress_wrapper: Optional[Callable[[Iterable], Iterable]] = None
     ) -> np.ndarray:
-        """Extract data in batches using isel wrapper with tqdm progress bar.
+        """Extract data in batches using isel wrapper with progress bar.
 
         Handles multiple batch dimensions by creating all combinations and looping through them.
 
@@ -94,7 +94,8 @@ class DimensionParser:
             slicers: Dictionary with dimension names as keys and list/tuple as values
                     e.g., {'P': 0, 'C': [0], 'T': [0, 100]} for single position,
                           single channel, all time points from index 0 to 99
-            desc: Description for tqdm progress bar
+            desc: Description for progress bar
+            progress_wrapper: Optional function to wrap the iterator for progress tracking (e.g., rich.progress.track)
 
         Returns:
             numpy.ndarray with the extracted data
@@ -186,11 +187,14 @@ class DimensionParser:
         # Create mapping from dimension name to its position in xarray.dims
         dim_positions = {dim: i for i, dim in enumerate(xarray.dims)}
 
-        # Single for loop writing directly into pre-allocated array
-        iterator = tqdm(
-            batch_combinations,
-            desc=f"{desc} ({','.join(batch_dims)})",
-        )
+        # Use provided progress wrapper or fallback to tqdm
+        if progress_wrapper:
+            iterator = progress_wrapper(batch_combinations)
+        else:
+            iterator = tqdm(
+                batch_combinations,
+                desc=f"{desc} ({','.join(batch_dims)})",
+            )
 
         for combination in iterator:
             # Build slicers for this combination
@@ -228,22 +232,10 @@ class DimensionParser:
     def build_slicer_dict(
         position=None, channel=None, time=None, z=None, dimensions=None
     ):
-        """Build slicer dictionary from individual dimension selections.
-
-        Args:
-            position: Single position index or [start, end] range, or None for all positions
-            channel: Single channel index or [start, end] range, or None for all channels
-            time: Single time index or [start, end] range, or None for all time points
-            z: Single z index or [start, end] range, or None for all z slices
-            dimensions: Dimension info dictionary (needed for None -> full range conversion)
-
-        Returns:
-            Dictionary with slicer ranges like {'P': [0, 1], 'C': [0, 3], 'T': [0, 50]}
-        """
+        """Build slicer dictionary from individual dimension selections."""
         slicers = {}
 
         if dimensions is None:
-            # Fallback - can't handle None selections without dimension info
             if position is not None:
                 slicers["P"] = position
             if channel is not None:
@@ -257,37 +249,25 @@ class DimensionParser:
         # Handle each dimension
         if "P" in dimensions:
             if position is None:
-                slicers["P"] = (
-                    0,
-                    dimensions["P"]["size"] - 1,
-                )  # Full range (inclusive)
+                slicers["P"] = (0, dimensions["P"]["size"] - 1)
             else:
                 slicers["P"] = position
 
         if "C" in dimensions:
             if channel is None:
-                slicers["C"] = (
-                    0,
-                    dimensions["C"]["size"] - 1,
-                )  # Full range (inclusive)
+                slicers["C"] = (0, dimensions["C"]["size"] - 1)
             else:
                 slicers["C"] = channel
 
         if "T" in dimensions:
             if time is None:
-                slicers["T"] = (
-                    0,
-                    dimensions["T"]["size"] - 1,
-                )  # Full range (inclusive)
+                slicers["T"] = (0, dimensions["T"]["size"] - 1)
             else:
                 slicers["T"] = time
 
         if "Z" in dimensions:
             if z is None:
-                slicers["Z"] = (
-                    0,
-                    dimensions["Z"]["size"] - 1,
-                )  # Full range (inclusive)
+                slicers["Z"] = (0, dimensions["Z"]["size"] - 1)
             else:
                 slicers["Z"] = z
 
@@ -299,36 +279,24 @@ class DimensionParser:
         """Ensure data has the expected 5D structure (T, P, C, Y, X)."""
         logger.debug(f"Ensuring 5D structure for data with shape: {data.shape}")
 
-        # Map existing dimensions to (T, P, C, Y, X) positions
-        # If we have less than 5 dimensions, we need to pad in the middle positions
-        # P and C should be padded in positions 1 and 2, not at the beginning
-
         if len(data.shape) == 5:
-            # Already 5D
             shape_order = list(data.shape)
         elif len(data.shape) == 3:
-            # Assume (T, Y, X) -> add P=1, C=1
             t, y, x = data.shape
             shape_order = [t, 1, 1, y, x]
         elif len(data.shape) == 4:
-            # Could be (T, C, Y, X) or (T, P, Y, X)
-            # Need to determine based on typical sizes
             dims = list(data.shape)
-            if dims[1] in [1, 2, 3, 4]:  # Usually channels
-                # Assume (T, C, Y, X) -> add P=1
+            if dims[1] in [1, 2, 3, 4]:
                 t, c, y, x = dims
                 shape_order = [t, 1, c, y, x]
             else:
-                # Assume (T, P, Y, X) -> add C=1
                 t, p, y, x = dims
                 shape_order = [t, p, 1, y, x]
         else:
-            # Fallback - pad beginning
             while len(data.shape) < 5:
                 data = np.expand_dims(data, axis=0)
             return data
 
-        # Reshape to correct order if needed
         if len(data.shape) != len(shape_order):
             logger.debug(f"Reshaping from {data.shape} to {shape_order}")
             data = data.reshape(shape_order)
@@ -340,11 +308,9 @@ class DimensionParser:
     def get_dimension_limits(dimensions: Dict[str, Dict[str, Any]]) -> Dict[str, int]:
         """Get the maximum valid index for each available dimension."""
         limits = {}
-
         for axis, dim_info in dimensions.items():
             limits[axis] = dim_info["size"] - 1
             logger.debug(f"Dimension {axis} limit: {limits[axis]}")
-
         return limits
 
     @staticmethod
@@ -352,7 +318,6 @@ class DimensionParser:
         """Format dimension information for display."""
         lines = []
         lines.append("=== Dimension Details ===")
-
         for axis, dim_info in dimensions.items():
             lines.append(f"Axis {axis}:")
             lines.append(f"  Size: {dim_info['size']}")
@@ -361,5 +326,4 @@ class DimensionParser:
                 labels_text += "..." if len(dim_info["labels"]) > 5 else ""
                 lines.append(f"  Labels: {labels_text}")
             lines.append("")
-
         return "\n".join(lines)
