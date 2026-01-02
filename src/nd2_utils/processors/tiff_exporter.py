@@ -181,7 +181,7 @@ class TiffExporter(BaseWorkerThread):
         logger.info(f"Exporting with dimensions T={t}, P={p}, C={c}, Y={y}, X={x}")
 
         # Build OME metadata from ND2 attributes
-        metadata = TiffExporter._build_ome_metadata(nd2_attrs, os.path.basename(self.nd2_path))
+        metadata = ND2Processor.build_ome_metadata(nd2_attrs, os.path.basename(self.nd2_path))
 
         # Write TIFF file with metadata
         TiffExporter._write_tiff(self.output_path, data, metadata)
@@ -219,63 +219,13 @@ class TiffExporter(BaseWorkerThread):
                 data = data.astype(np.uint16)
 
         # Build OME metadata from ND2 attributes
-        metadata = TiffExporter._build_ome_metadata(nd2_attrs, os.path.basename(nd2_path))
+        metadata = ND2Processor.build_ome_metadata(nd2_attrs, os.path.basename(nd2_path))
 
         # Write file using shared write method
         TiffExporter._write_tiff(output_path, data, metadata)
 
         logger.info(f"Successfully exported to: {output_path}")
         return output_path
-    
-    @staticmethod
-    def _build_ome_metadata(nd2_attrs: Dict[str, Any], source_filename: str) -> Dict[str, Any]:
-        """Build OME-TIFF metadata from ND2 attributes.
-
-        Args:
-            nd2_attrs: ND2 file attributes dictionary
-            source_filename: Name of the source ND2 file
-
-        Returns:
-            Dictionary with OME-TIFF compatible metadata
-        """
-        metadata = {
-            'Description': f'Exported from ND2 file: {source_filename}'
-        }
-
-        # Extract pixel sizes if available
-        if isinstance(nd2_attrs, dict) and 'pixelSizeUm' in nd2_attrs:
-            pixel_size = nd2_attrs['pixelSizeUm']
-            if hasattr(pixel_size, 'x') and pixel_size.x:
-                metadata['PhysicalSizeX'] = pixel_size.x
-                metadata['PhysicalSizeXUnit'] = 'µm'
-            if hasattr(pixel_size, 'y') and pixel_size.y:
-                metadata['PhysicalSizeY'] = pixel_size.y
-                metadata['PhysicalSizeYUnit'] = 'µm'
-            if hasattr(pixel_size, 'z') and pixel_size.z:
-                metadata['PhysicalSizeZ'] = pixel_size.z
-                metadata['PhysicalSizeZUnit'] = 'µm'
-
-        # Extract channel names if available
-        if isinstance(nd2_attrs, dict) and 'channelNames' in nd2_attrs:
-            channel_names = nd2_attrs['channelNames']
-            if channel_names:
-                metadata['Channel'] = {'Name': list(channel_names)}
-
-        # Extract time loop information if available
-        if isinstance(nd2_attrs, dict) and 'loops' in nd2_attrs:
-            loops = nd2_attrs['loops']
-            # Find TimeLoop
-            for loop in loops if hasattr(loops, '__iter__') else []:
-                if hasattr(loop, 'type') and loop.type == 'TimeLoop':
-                    if hasattr(loop, 'parameters') and hasattr(loop.parameters, 'periodMs'):
-                        period_ms = loop.parameters.periodMs
-                        if period_ms:
-                            metadata['TimeIncrement'] = period_ms
-                            metadata['TimeIncrementUnit'] = 'ms'
-                    break
-
-        logger.debug(f"Built OME metadata with keys: {list(metadata.keys())}")
-        return metadata
 
     @staticmethod
     def _write_tiff(output_path, data_5d, metadata: Dict[str, Any]):

@@ -118,3 +118,53 @@ class ND2Processor(BaseWorkerThread):
             logger.debug(f"Converted to numpy with shape: {data.shape}")
         
         return data
+
+    @staticmethod
+    def build_ome_metadata(nd2_attrs: Dict[str, Any], source_filename: str) -> Dict[str, Any]:
+        """Build OME-TIFF metadata from ND2 attributes.
+
+        Args:
+            nd2_attrs: ND2 file attributes dictionary
+            source_filename: Name of the source ND2 file
+
+        Returns:
+            Dictionary with OME-TIFF compatible metadata
+        """
+        metadata = {
+            'Description': f'Exported from ND2 file: {source_filename}'
+        }
+
+        # Extract pixel sizes if available
+        if isinstance(nd2_attrs, dict) and 'pixelSizeUm' in nd2_attrs:
+            pixel_size = nd2_attrs['pixelSizeUm']
+            if hasattr(pixel_size, 'x') and pixel_size.x:
+                metadata['PhysicalSizeX'] = pixel_size.x
+                metadata['PhysicalSizeXUnit'] = 'µm'
+            if hasattr(pixel_size, 'y') and pixel_size.y:
+                metadata['PhysicalSizeY'] = pixel_size.y
+                metadata['PhysicalSizeYUnit'] = 'µm'
+            if hasattr(pixel_size, 'z') and pixel_size.z:
+                metadata['PhysicalSizeZ'] = pixel_size.z
+                metadata['PhysicalSizeZUnit'] = 'µm'
+
+        # Extract channel names if available
+        if isinstance(nd2_attrs, dict) and 'channelNames' in nd2_attrs:
+            channel_names = nd2_attrs['channelNames']
+            if channel_names:
+                metadata['Channel'] = {'Name': list(channel_names)}
+
+        # Extract time loop information if available
+        if isinstance(nd2_attrs, dict) and 'loops' in nd2_attrs:
+            loops = nd2_attrs['loops']
+            # Find TimeLoop
+            for loop in loops if hasattr(loops, '__iter__') else []:
+                if hasattr(loop, 'type') and loop.type == 'TimeLoop':
+                    if hasattr(loop, 'parameters') and hasattr(loop.parameters, 'periodMs'):
+                        period_ms = loop.parameters.periodMs
+                        if period_ms:
+                            metadata['TimeIncrement'] = period_ms
+                            metadata['TimeIncrementUnit'] = 'ms'
+                    break
+
+        logger.debug(f"Built OME metadata with keys: {list(metadata.keys())}")
+        return metadata
