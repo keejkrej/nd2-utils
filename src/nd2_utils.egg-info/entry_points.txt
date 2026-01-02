@@ -1,2 +1,0 @@
-[console_scripts]
-nd2-gui = nd2_utils.gui.main:main

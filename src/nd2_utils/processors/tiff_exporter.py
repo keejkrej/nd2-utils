@@ -227,10 +227,19 @@ class TiffExporter(BaseWorkerThread):
         
         # Write file
         from tifffile import imwrite
+
+        # Get dimensions and flatten if 5D
+        if len(data.shape) == 5:
+            t, p, c, y, x = data.shape
+            # Flatten P×C for ImageJ
+            data = data.reshape(t, p * c, y, x)
+
+        # Build ImageJ metadata with proper dimension labels
         metadata = {
-            'description': f'Exported from ND2 file: {os.path.basename(nd2_path)}'
+            'axes': 'TCYX',  # Explicitly tell ImageJ: Time, Channel, Y, X
+            'Description': f'Exported from ND2 file: {os.path.basename(nd2_path)}'
         }
-        
+
         data = np.ascontiguousarray(data)
         imwrite(output_path, data, metadata=metadata, imagej=True, bigtiff=True)
         
@@ -256,13 +265,20 @@ class TiffExporter(BaseWorkerThread):
         new_shape = (t, p * c, y, x)
         data_to_write = data_5d.reshape(new_shape)
 
+        # Build ImageJ metadata with proper dimension labels
+        # ImageJ expects 'axes' to be specified for proper dimension interpretation
+        imagej_metadata = {
+            'axes': 'TCYX',  # Explicitly tell ImageJ: Time, Channel, Y, X
+            'Description': metadata.get('description', 'ND2 export')
+        }
+
         # Write normal TIFF file with ImageJ format
         imwrite(
             self.output_path,
             data_to_write,
             imagej=True,
             bigtiff=True,
-            metadata={'Description': metadata.get('description', 'ND2 export')}
+            metadata=imagej_metadata
         )
 
         logger.info(f"Successfully wrote TIFF file with shape: {data_to_write.shape} (T={t}, C={p*c}, Y={y}, X={x})")

@@ -156,33 +156,21 @@ class DimensionParser:
         total_combinations = len(batch_combinations)
         logger.debug(f"Generated {total_combinations} combinations for {len(batch_dims)} batch dimensions")
         
-        # Pre-allocate the final array with correct dimensions
-        logger.debug("Pre-allocating result array")
-        
-        # Get shape by converting slicers to final dimension sizes
+        # Pre-allocate array directly in xarray.dims order (no transpose needed!)
+        logger.debug("Pre-allocating result array in xarray.dims order")
+
+        # Build final shape in xarray.dims order
         final_shape = []
         for dim in xarray.dims:
             if dim in batch_dims:
                 final_shape.append(len(dim_indices[dim]))
-            else:
-                # Fixed dimension will be squeezed out later
+            elif dim in fixed_dims:
                 final_shape.append(1)
-        
-        # The full data shape includes the non-batch dimensions
-        non_batch_dims = [dim for dim in xarray.dims if dim not in batch_dims]
-        data_shape = []
-        for dim in non_batch_dims:
-            if dim in fixed_dims:
-                # Fixed dimension should have size 1
-                data_shape.append(1)
             else:
                 # Non-batch, non-fixed dimension keeps its full size
-                data_shape.append(xarray.sizes[dim])
-        data_shape = tuple(data_shape)
-        
-        # Final array shape: batch dimensions + data dimensions  
-        result_array = np.zeros((*[len(dim_indices[dim]) for dim in batch_dims], *data_shape), dtype=xarray.dtype)
-        
+                final_shape.append(xarray.sizes[dim])
+
+        result_array = np.zeros(final_shape, dtype=xarray.dtype)
         logger.debug(f"Pre-allocated array with shape: {result_array.shape}, dtype: {result_array.dtype}")
 
         # Create mapping from original indices to result array indices
@@ -191,70 +179,43 @@ class DimensionParser:
             for dim in batch_dims
         }
 
+        # Create mapping from dimension name to its position in xarray.dims
+        dim_positions = {dim: i for i, dim in enumerate(xarray.dims)}
+
         # Single for loop writing directly into pre-allocated array
         iterator = tqdm(batch_combinations, desc=f"{desc} ({','.join(batch_dims)})", disable=not TQDM_AVAILABLE)
-        
+
         for combination in iterator:
             # Build slicers for this combination
             current_slicers = fixed_dims.copy()
             for i, dim in enumerate(batch_dims):
                 current_slicers[dim] = combination[i]
-            
+
             # Extract the chunk
             chunk = xarray.isel(current_slicers, drop=False).compute()
-            
+
             # Preserve original dtype from dask/xarray to prevent float64 promotion
             if hasattr(chunk, 'dtype') and chunk.dtype != xarray.dtype:
                 chunk = chunk.astype(xarray.dtype)
-            
-            # Write directly to the corresponding slice in result_array
-            array_indices = tuple(index_maps[dim][combination[i]] for i, dim in enumerate(batch_dims))
-            # Add indices for fixed dimensions (which should be 0 since they're fixed)
-            for dim in non_batch_dims:
-                if dim in fixed_dims:
-                    array_indices = array_indices + (0,)
-            result_array[array_indices] = chunk
-        
-        # Reshape to match the final dimension order
-        # The result_array shape is: (batch_dim0_size, batch_dim1_size, ..., data_dims)
-        # We need to reorder to match xarray.dims order
-        
-        # Create the final shape and transpose mapping
-        batch_sizes = [len(dim_indices[dim]) for dim in batch_dims]
-        
-        # The current array order is the combination order, which might not match xarray order
-        current_batch_order = batch_dims  # Order in itertools.product
-        target_order = []  # Where each dimension should go
-        
-        # Build transpose axes to move from current to target order
-        transpose_axes = []
-        target_shape = []
-        
-        for target_dim in xarray.dims:
-            if target_dim in batch_dims:
-                # Find where this batch dimension is in current order
-                current_index = current_batch_order.index(target_dim)
-                transpose_axes.append(current_index)
-                target_shape.append(batch_sizes[current_index])
-            else:
-                # Fixed dimension - comes after all batch dimensions in our array
-                # Find its index in the data dimensions
-                non_batch_dims = [d for d in xarray.dims if d not in batch_dims]
-                data_dim_index = non_batch_dims.index(target_dim)
-                array_axis = len(batch_dims) + data_dim_index
-                transpose_axes.append(array_axis)
-                # For fixed dimensions, the size should be 1
-                if target_dim in fixed_dims:
-                    target_shape.append(1)
-                else:
-                    target_shape.append(data_shape[data_dim_index])
-        
-        # Transpose and reshape to correct order
-        result = result_array.transpose(*transpose_axes).reshape(*target_shape)
-        
-        # DO NOT squeeze - keep full dimensions for TIFF export
-        logger.debug(f"Final result shape: {result.shape}")
-        return result
+
+            # Build array indices in xarray.dims order
+            array_indices = [slice(None)] * len(xarray.dims)
+            for i, dim in enumerate(batch_dims):
+                # Map this batch dimension to its position in xarray.dims
+                pos = dim_positions[dim]
+                # Get the result array index for this original index
+                array_indices[pos] = index_maps[dim][combination[i]]
+
+            # For fixed dimensions, use index 0
+            for dim in fixed_dims:
+                pos = dim_positions[dim]
+                array_indices[pos] = 0
+
+            result_array[tuple(array_indices)] = chunk
+
+        # No transpose needed - array is already in correct order!
+        logger.debug(f"Final result shape: {result_array.shape}")
+        return result_array
     
     @staticmethod
     def build_slicer_dict(position=None, channel=None, time=None, z=None, dimensions=None):
