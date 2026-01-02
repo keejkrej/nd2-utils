@@ -241,7 +241,7 @@ class TiffExporter(BaseWorkerThread):
         }
 
         data = np.ascontiguousarray(data)
-        imwrite(output_path, data, metadata=metadata, bigtiff=True)
+        imwrite(output_path, data, metadata=metadata, bigtiff=True, ome=True)
         
         logger.info(f"Successfully exported to: {output_path}")
         return output_path
@@ -276,7 +276,8 @@ class TiffExporter(BaseWorkerThread):
             self.output_path,
             data_to_write,
             bigtiff=True,
-            metadata=tiff_metadata
+            metadata=tiff_metadata,
+            ome=True
         )
 
         logger.info(f"Successfully wrote TIFF file with shape: {data_to_write.shape} (T={t}, C={p*c}, Y={y}, X={x})")
