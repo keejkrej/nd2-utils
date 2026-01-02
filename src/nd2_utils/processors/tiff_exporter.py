@@ -180,8 +180,11 @@ class TiffExporter(BaseWorkerThread):
         
         logger.info(f"Exporting with dimensions T={t}, P={p}, C={c}, Y={y}, X={x}")
 
-        # Use the wrapper method which handles all dimension collapsing
-        TiffExporter._write_tiff(self.output_path, data, os.path.basename(self.nd2_path))
+        # Build OME metadata from ND2 attributes
+        metadata = TiffExporter._build_ome_metadata(nd2_attrs, os.path.basename(self.nd2_path))
+
+        # Write TIFF file with metadata
+        TiffExporter._write_tiff(self.output_path, data, metadata)
     
     @staticmethod
     def export_file(nd2_path: str, output_path: str,
@@ -194,6 +197,10 @@ class TiffExporter(BaseWorkerThread):
         
         # Load and process using ND2Processor
         info = ND2Processor.load_file(nd2_path)
+
+        # Extract ND2 attributes for metadata
+        nd2_attrs = info.get('attributes', {})
+
         data = ND2Processor.extract_subset(info, position, channel, time, z)
         
         # Data should already be 5D from extraction
@@ -211,20 +218,73 @@ class TiffExporter(BaseWorkerThread):
             else:
                 data = data.astype(np.uint16)
 
+        # Build OME metadata from ND2 attributes
+        metadata = TiffExporter._build_ome_metadata(nd2_attrs, os.path.basename(nd2_path))
+
         # Write file using shared write method
-        TiffExporter._write_tiff(output_path, data, os.path.basename(nd2_path))
+        TiffExporter._write_tiff(output_path, data, metadata)
 
         logger.info(f"Successfully exported to: {output_path}")
         return output_path
     
     @staticmethod
-    def _write_tiff(output_path, data_5d, source_filename):
+    def _build_ome_metadata(nd2_attrs: Dict[str, Any], source_filename: str) -> Dict[str, Any]:
+        """Build OME-TIFF metadata from ND2 attributes.
+
+        Args:
+            nd2_attrs: ND2 file attributes dictionary
+            source_filename: Name of the source ND2 file
+
+        Returns:
+            Dictionary with OME-TIFF compatible metadata
+        """
+        metadata = {
+            'Description': f'Exported from ND2 file: {source_filename}'
+        }
+
+        # Extract pixel sizes if available
+        if isinstance(nd2_attrs, dict) and 'pixelSizeUm' in nd2_attrs:
+            pixel_size = nd2_attrs['pixelSizeUm']
+            if hasattr(pixel_size, 'x') and pixel_size.x:
+                metadata['PhysicalSizeX'] = pixel_size.x
+                metadata['PhysicalSizeXUnit'] = 'µm'
+            if hasattr(pixel_size, 'y') and pixel_size.y:
+                metadata['PhysicalSizeY'] = pixel_size.y
+                metadata['PhysicalSizeYUnit'] = 'µm'
+            if hasattr(pixel_size, 'z') and pixel_size.z:
+                metadata['PhysicalSizeZ'] = pixel_size.z
+                metadata['PhysicalSizeZUnit'] = 'µm'
+
+        # Extract channel names if available
+        if isinstance(nd2_attrs, dict) and 'channelNames' in nd2_attrs:
+            channel_names = nd2_attrs['channelNames']
+            if channel_names:
+                metadata['Channel'] = {'Name': list(channel_names)}
+
+        # Extract time loop information if available
+        if isinstance(nd2_attrs, dict) and 'loops' in nd2_attrs:
+            loops = nd2_attrs['loops']
+            # Find TimeLoop
+            for loop in loops if hasattr(loops, '__iter__') else []:
+                if hasattr(loop, 'type') and loop.type == 'TimeLoop':
+                    if hasattr(loop, 'parameters') and hasattr(loop.parameters, 'periodMs'):
+                        period_ms = loop.parameters.periodMs
+                        if period_ms:
+                            metadata['TimeIncrement'] = period_ms
+                            metadata['TimeIncrementUnit'] = 'ms'
+                    break
+
+        logger.debug(f"Built OME metadata with keys: {list(metadata.keys())}")
+        return metadata
+
+    @staticmethod
+    def _write_tiff(output_path, data_5d, metadata: Dict[str, Any]):
         """Write 5D data (T, P, C, Y, X) to 4D TIFF with flattened P×C dimensions.
 
         Args:
             output_path: Path where the TIFF file will be written
             data_5d: 5D numpy array with shape (T, P, C, Y, X)
-            source_filename: Name of the source ND2 file
+            metadata: OME-TIFF metadata dictionary
         """
         from tifffile import imwrite
 
@@ -236,11 +296,9 @@ class TiffExporter(BaseWorkerThread):
         new_shape = (t, p * c, y, x)
         data_to_write = data_5d.reshape(new_shape)
 
-        # Build metadata with proper dimension labels
-        tiff_metadata = {
-            'axes': 'TCYX',  # Tell viewers: Time, Channel, Y, X
-            'Description': f'Exported from ND2 file: {source_filename}'
-        }
+        # Add axes to metadata (structural information about the data)
+        tiff_metadata = metadata.copy()
+        tiff_metadata['axes'] = 'TCYX'  # Tell viewers: Time, Channel, Y, X
 
         # Write BigTIFF file
         imwrite(
