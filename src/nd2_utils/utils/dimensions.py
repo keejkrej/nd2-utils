@@ -7,10 +7,9 @@ import logging
 from typing import Any, Dict, Optional
 
 import numpy as np
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
-
-from tqdm import tqdm
 
 
 class DimensionParser:
