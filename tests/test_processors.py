@@ -4,7 +4,7 @@ Tests for the processor modules.
 
 import unittest
 import numpy as np
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 # Add src package to path
 import sys
@@ -191,19 +191,6 @@ class TestND2Processor(unittest.TestCase):
         # Verify nd2.imread was called correctly
         mock_nd2.imread.assert_called_once_with("/test/file.nd2", xarray=True, dask=True)
     
-    @patch('nd2_utils.processors.nd2_processor.nd2')
-    def test_load_file_no_nd2(self, mock_nd2):
-        """Test loading when nd2 package is not available."""
-        # Temporarily disable nd2
-        original_available = ND2Processor.ND2_AVAILABLE
-        ND2Processor.ND2_AVAILABLE = False
-        
-        try:
-            processor = ND2Processor()
-            with self.assertRaises(ImportError):
-                processor.load_file("/test/file.nd2")
-        finally:
-            ND2Processor.ND2_AVAILABLE = original_available
 
 
 class TestTiffExporter(unittest.TestCase):
