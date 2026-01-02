@@ -10,6 +10,7 @@ import numpy as np
 from ..utils.metadata import MetadataHandler
 from ..utils.dimensions import DimensionParser
 from ..utils.threading import BaseWorkerThread, OperationCancelled
+from . import nd2_processor
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,92 @@ try:
 except ImportError:
     logger.error("tifffile package not available")
     TIFFFILE_AVAILABLE = False
+
+
+# Module-level functions for TIFF export operations
+
+def export_to_tiff(nd2_path: str, output_path: str,
+                   position: Optional[tuple] = None,
+                   channel: Optional[tuple] = None,
+                   time: Optional[tuple] = None,
+                   z: Optional[tuple] = None) -> str:
+    """Export ND2 file to TIFF format.
+
+    Args:
+        nd2_path: Path to the ND2 file
+        output_path: Path where the TIFF file will be written
+        position: Position range to export
+        channel: Channel range to export
+        time: Time range to export
+        z: Z-slice range to export
+
+    Returns:
+        Path to the exported TIFF file
+    """
+    logger.debug(f"Exporting ND2 file to TIFF: {nd2_path}")
+
+    # Load and process using nd2_processor functions
+    info = nd2_processor.load_file(nd2_path)
+
+    # Extract ND2 attributes for metadata
+    nd2_attrs = info.get('attributes', {})
+
+    data = nd2_processor.extract_subset(info, position, channel, time, z)
+
+    # Convert data type if needed
+    if data.dtype not in [np.uint8, np.uint16, np.float32, np.float64]:
+        logger.debug(f"Converting data type from {data.dtype} to uint16")
+        if data.dtype.kind == 'f':
+            data_max = np.nanmax(data)
+            if data_max > 0:
+                data = (data / data_max * 65535).astype(np.uint16)
+            else:
+                data = np.zeros_like(data, dtype=np.uint16)
+        else:
+            data = data.astype(np.uint16)
+
+    # Build OME metadata from ND2 attributes
+    metadata = nd2_processor.build_ome_metadata(nd2_attrs, os.path.basename(nd2_path))
+
+    # Write file
+    write_tiff(output_path, data, metadata)
+
+    logger.info(f"Successfully exported to: {output_path}")
+    return output_path
+
+
+def write_tiff(output_path: str, data_5d: np.ndarray, metadata: Dict[str, Any]):
+    """Write 5D data (T, P, C, Y, X) to 4D TIFF with flattened P×C dimensions.
+
+    Args:
+        output_path: Path where the TIFF file will be written
+        data_5d: 5D numpy array with shape (T, P, C, Y, X)
+        metadata: OME-TIFF metadata dictionary
+    """
+    from tifffile import imwrite
+
+    shape = data_5d.shape
+    t, p, c, y, x = shape
+
+    # Flatten P×C dimensions for ImageJ compatibility (TCYX format)
+    # New shape: (T, P*C, Y, X)
+    new_shape = (t, p * c, y, x)
+    data_to_write = data_5d.reshape(new_shape)
+
+    # Add axes to metadata (structural information about the data)
+    tiff_metadata = metadata.copy()
+    tiff_metadata['axes'] = 'TCYX'  # Tell viewers: Time, Channel, Y, X
+
+    # Write BigTIFF file
+    imwrite(
+        output_path,
+        data_to_write,
+        bigtiff=True,
+        metadata=tiff_metadata,
+        ome=True
+    )
+
+    logger.info(f"Successfully wrote TIFF file with shape: {data_to_write.shape} (T={t}, C={p*c}, Y={y}, X={x})")
 
 
 class TiffExporter(BaseWorkerThread):
@@ -171,16 +258,7 @@ class TiffExporter(BaseWorkerThread):
             else:
                 data = data.astype(np.uint16)
             logger.debug(f"Converted data to dtype: {data.dtype}")
-        
-        # Get pixel size for metadata
-        pixel_size_x = 1.0
-        pixel_size_y = 1.0
-        if isinstance(nd2_attrs, dict) and 'pixelSizeUm' in nd2_attrs:
-            if 'x' in nd2_attrs['pixelSizeUm']:
-                pixel_size_x = nd2_attrs['pixelSizeUm']['x']
-            if 'y' in nd2_attrs['pixelSizeUm']:
-                pixel_size_y = nd2_attrs['pixelSizeUm']['y']
-        
+
         # Get dimensions
         if len(data.shape) == 5:
             t, p, c, y, x = data.shape
@@ -188,95 +266,9 @@ class TiffExporter(BaseWorkerThread):
             raise ValueError(f"Expected 5D data, got {data.shape}")
         
         logger.info(f"Exporting with dimensions T={t}, P={p}, C={c}, Y={y}, X={x}")
-        
-        # Create metadata
-        metadata = {
-            'description': f'Exported from ND2 file: {os.path.basename(self.nd2_path)}'
-        }
-        
-        # Use the wrapper method which handles all dimension collapsing
-        self._write_5d_tiff(data, metadata, pixel_size_x, pixel_size_y)
-    
-    @staticmethod
-    def export_file(nd2_path: str, output_path: str,
-                   position: Optional[tuple] = None,
-                   channel: Optional[tuple] = None,
-                   time: Optional[tuple] = None,
-                   z: Optional[tuple] = None) -> str:
-        """Export ND2 file to TIFF synchronously (for CLI usage)."""
-        logger.debug(f"Exporting ND2 file synchronously: {nd2_path}")
-        
-        # Load and process using ND2Processor
-        info = ND2Processor.load_file(nd2_path)
-        data = ND2Processor.extract_subset(info, position, channel, time, z)
-        
-        # Data should already be 5D from extraction
-        # No padding needed
-        
-        # Convert data type if needed
-        if data.dtype not in [np.uint8, np.uint16, np.float32, np.float64]:
-            logger.debug(f"Converting data type from {data.dtype} to uint16")
-            if data.dtype.kind == 'f':
-                data_max = np.nanmax(data)
-                if data_max > 0:
-                    data = (data / data_max * 65535).astype(np.uint16)
-                else:
-                    data = np.zeros_like(data, dtype=np.uint16)
-            else:
-                data = data.astype(np.uint16)
-        
-        # Write file
-        from tifffile import imwrite
 
-        # Get dimensions and flatten if 5D
-        if len(data.shape) == 5:
-            t, p, c, y, x = data.shape
-            # Flatten P×C for ImageJ
-            data = data.reshape(t, p * c, y, x)
+        # Build OME metadata from ND2 attributes
+        metadata = nd2_processor.build_ome_metadata(nd2_attrs, os.path.basename(self.nd2_path))
 
-        # Build metadata with proper dimension labels
-        metadata = {
-            'axes': 'TCYX',  # Tell viewers: Time, Channel, Y, X
-            'Description': f'Exported from ND2 file: {os.path.basename(nd2_path)}'
-        }
-
-        data = np.ascontiguousarray(data)
-        imwrite(output_path, data, metadata=metadata, bigtiff=True)
-        
-        logger.info(f"Successfully exported to: {output_path}")
-        return output_path
-    
-    def _write_5d_tiff(self, data_5d, metadata, pixel_size_x, pixel_size_y):
-        """Write 5D data (T, P, C, Y, X) to TIFF with flattened P×C dimensions.
-
-        Args:
-            data_5d: 5D numpy array with shape (T, P, C, Y, X)
-            metadata: Metadata dictionary
-            pixel_size_x: Pixel size in X direction (µm)
-            pixel_size_y: Pixel size in Y direction (µm)
-        """
-        from tifffile import imwrite
-
-        shape = data_5d.shape
-        t, p, c, y, x = shape
-
-        # Flatten P×C dimensions for ImageJ compatibility (TCYX format)
-        # New shape: (T, P*C, Y, X)
-        new_shape = (t, p * c, y, x)
-        data_to_write = data_5d.reshape(new_shape)
-
-        # Build metadata with proper dimension labels
-        tiff_metadata = {
-            'axes': 'TCYX',  # Tell viewers: Time, Channel, Y, X
-            'Description': metadata.get('description', 'ND2 export')
-        }
-
-        # Write BigTIFF file
-        imwrite(
-            self.output_path,
-            data_to_write,
-            bigtiff=True,
-            metadata=tiff_metadata
-        )
-
-        logger.info(f"Successfully wrote TIFF file with shape: {data_to_write.shape} (T={t}, C={p*c}, Y={y}, X={x})")
+        # Write TIFF file with metadata
+        write_tiff(self.output_path, data, metadata)
