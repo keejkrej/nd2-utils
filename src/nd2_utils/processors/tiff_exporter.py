@@ -171,16 +171,7 @@ class TiffExporter(BaseWorkerThread):
             else:
                 data = data.astype(np.uint16)
             logger.debug(f"Converted data to dtype: {data.dtype}")
-        
-        # Get pixel size for metadata
-        pixel_size_x = 1.0
-        pixel_size_y = 1.0
-        if isinstance(nd2_attrs, dict) and 'pixelSizeUm' in nd2_attrs:
-            if 'x' in nd2_attrs['pixelSizeUm']:
-                pixel_size_x = nd2_attrs['pixelSizeUm']['x']
-            if 'y' in nd2_attrs['pixelSizeUm']:
-                pixel_size_y = nd2_attrs['pixelSizeUm']['y']
-        
+
         # Get dimensions
         if len(data.shape) == 5:
             t, p, c, y, x = data.shape
@@ -195,7 +186,7 @@ class TiffExporter(BaseWorkerThread):
         }
         
         # Use the wrapper method which handles all dimension collapsing
-        TiffExporter._write_tiff(self.output_path, data, metadata, pixel_size_x, pixel_size_y)
+        TiffExporter._write_tiff(self.output_path, data, metadata)
     
     @staticmethod
     def export_file(nd2_path: str, output_path: str,
@@ -229,21 +220,19 @@ class TiffExporter(BaseWorkerThread):
         metadata = {
             'description': f'Exported from ND2 file: {os.path.basename(nd2_path)}'
         }
-        TiffExporter._write_tiff(output_path, data, metadata, pixel_size_x=1.0, pixel_size_y=1.0)
+        TiffExporter._write_tiff(output_path, data, metadata)
 
         logger.info(f"Successfully exported to: {output_path}")
         return output_path
     
     @staticmethod
-    def _write_tiff(output_path, data_5d, metadata, pixel_size_x, pixel_size_y):
+    def _write_tiff(output_path, data_5d, metadata):
         """Write 5D data (T, P, C, Y, X) to 4D TIFF with flattened P×C dimensions.
 
         Args:
             output_path: Path where the TIFF file will be written
             data_5d: 5D numpy array with shape (T, P, C, Y, X)
             metadata: Metadata dictionary
-            pixel_size_x: Pixel size in X direction (µm)
-            pixel_size_y: Pixel size in Y direction (µm)
         """
         from tifffile import imwrite
 
