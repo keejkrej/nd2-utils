@@ -12,10 +12,10 @@ APP_DESCRIPTION = "Utility tools for working with ND2 files"
 
 # File format constants
 ND2_EXTENSIONS = ['.nd2']
-TIFF_EXTENSIONS = ['.tif', '.tiff', '.ome.tif', '.ome.tiff']
+TIFF_EXTENSIONS = ['.tif', '.tiff']
 
 # Default settings
-DEFAULT_OUTPUT_FORMAT = '.ome.tif'
+DEFAULT_OUTPUT_FORMAT = '.tif'
 
 # Dimension order
 STANDARD_AXES = ['T', 'P', 'C', 'Y', 'X']

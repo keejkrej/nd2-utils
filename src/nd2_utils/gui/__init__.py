@@ -1,5 +1,5 @@
 """
-GUI modules for ND2 to OME-TIFF converter.
+GUI modules for ND2 to TIFF converter.
 """
 
 from .main import ND2ViewerApp

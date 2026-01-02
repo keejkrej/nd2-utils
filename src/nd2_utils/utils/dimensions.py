@@ -184,7 +184,13 @@ class DimensionParser:
         result_array = np.zeros((*[len(dim_indices[dim]) for dim in batch_dims], *data_shape), dtype=xarray.dtype)
         
         logger.debug(f"Pre-allocated array with shape: {result_array.shape}, dtype: {result_array.dtype}")
-        
+
+        # Create mapping from original indices to result array indices
+        index_maps = {
+            dim: {orig_idx: result_idx for result_idx, orig_idx in enumerate(dim_indices[dim])}
+            for dim in batch_dims
+        }
+
         # Single for loop writing directly into pre-allocated array
         iterator = tqdm(batch_combinations, desc=f"{desc} ({','.join(batch_dims)})", disable=not TQDM_AVAILABLE)
         
@@ -202,7 +208,7 @@ class DimensionParser:
                 chunk = chunk.astype(xarray.dtype)
             
             # Write directly to the corresponding slice in result_array
-            array_indices = tuple(combination)
+            array_indices = tuple(index_maps[dim][combination[i]] for i, dim in enumerate(batch_dims))
             # Add indices for fixed dimensions (which should be 0 since they're fixed)
             for dim in non_batch_dims:
                 if dim in fixed_dims:

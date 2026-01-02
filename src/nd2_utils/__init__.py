@@ -1,5 +1,5 @@
 """
-ND2 Utils - A package for working with ND2 files and exporting to OME-TIFF.
+ND2 Utils - A package for working with ND2 files and exporting to TIFF.
 """
 
 __version__ = "0.1.0"

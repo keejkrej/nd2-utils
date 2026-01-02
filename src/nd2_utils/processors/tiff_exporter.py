@@ -1,5 +1,5 @@
 """
-TIFF export module for ND2 to OME-TIFF conversion.
+TIFF export module for ND2 to TIFF conversion.
 """
 
 import os
@@ -30,7 +30,7 @@ except ImportError:
 
 
 class TiffExporter(BaseWorkerThread):
-    """Worker thread for exporting ND2 files to OME-TIFF format."""
+    """Worker thread for exporting ND2 files to TIFF format."""
     
     def __init__(self, nd2_path: str, output_path: str, 
                  position: Optional[tuple] = None,
@@ -46,7 +46,7 @@ class TiffExporter(BaseWorkerThread):
         self.z = z              # Can be None, (start, end), or (value, value)
     
     def run(self):
-        """Export ND2 file to OME-TIFF format."""
+        """Export ND2 file to TIFF format."""
         try:
             self._check_cancelled()
             logger.info("Starting export process")
@@ -149,7 +149,7 @@ class TiffExporter(BaseWorkerThread):
             self.error.emit("Export cancelled")
         except Exception as e:
             logger.exception(f"Error during export: {e}")
-            self.error.emit(f"Error exporting to OME-TIFF: {str(e)}")
+            self.error.emit(f"Error exporting to TIFF: {str(e)}")
     
     def _write_tiff_file(self, data: np.ndarray, nd2_attrs: Dict[str, Any]):
         """Write the data to a TIFF file."""
@@ -203,7 +203,7 @@ class TiffExporter(BaseWorkerThread):
                    channel: Optional[tuple] = None,
                    time: Optional[tuple] = None,
                    z: Optional[tuple] = None) -> str:
-        """Export ND2 file to OME-TIFF synchronously (for CLI usage)."""
+        """Export ND2 file to TIFF synchronously (for CLI usage)."""
         logger.debug(f"Exporting ND2 file synchronously: {nd2_path}")
         
         # Load and process using ND2Processor
@@ -238,90 +238,31 @@ class TiffExporter(BaseWorkerThread):
         return output_path
     
     def _write_5d_tiff(self, data_5d, metadata, pixel_size_x, pixel_size_y):
-        """Write 5D data (T, P, C, Y, X) to TIFF, handling dimension collapsing internally.
-        
+        """Write 5D data (T, P, C, Y, X) to TIFF with flattened P×C dimensions.
+
         Args:
             data_5d: 5D numpy array with shape (T, P, C, Y, X)
             metadata: Metadata dictionary
             pixel_size_x: Pixel size in X direction (µm)
             pixel_size_y: Pixel size in Y direction (µm)
         """
-        from tifffile import imwrite, TiffWriter
-        import numpy as np
-        
-        # Collapse singleton dimensions intelligently
+        from tifffile import imwrite
+
         shape = data_5d.shape
         t, p, c, y, x = shape
-        
-        # Determine what dimensions to keep
-        dims_to_keep = []
-        axis_labels = ['T', 'P', 'C', 'Y', 'X']
-        
-        for size, label in zip(shape, axis_labels):
-            if size > 1 or label in ['Y', 'X']:  # Always keep Y, X
-                dims_to_keep.append(label)
-        
-        # Flatten P into C for ImageJ compatibility (TCYX format)
+
+        # Flatten P×C dimensions for ImageJ compatibility (TCYX format)
         # New shape: (T, P*C, Y, X)
         new_shape = (t, p * c, y, x)
         data_to_write = data_5d.reshape(new_shape)
-        axes = 'TCYX'
-        
-        try:
-            # Try OME-TIFF format first
-            ome_metadata = {
-                'axes': axes,
-                'signatures': 'nd2-utils',
-                'Description': metadata.get('description', 'ND2 export'),
-                'PhysicalSizeX': pixel_size_x,
-                'PhysicalSizeXUnit': 'µm',
-                'PhysicalSizeY': pixel_size_y,
-                'PhysicalSizeYUnit': 'µm'
-            }
-            
-            # Only add channel metadata if we have channels
-            if p * c > 0:
-                # Generate channel names in P-C format
-                channel_names = []
-                for pos in range(p):
-                    for chan in range(c):
-                        channel_names.append(f'{pos}-{chan}')
-                
-                ome_metadata['Channel'] = {
-                    'Name': channel_names
-                }
-            
-            # Remove None values
-            ome_metadata = {k: v for k, v in ome_metadata.items() if v is not None}
-            
-            imwrite(
-                self.output_path,
-                data_to_write,
-                metadata=ome_metadata,
-                photometric='minisblack',
-                bigtiff=True
-            )
-            logger.info(f"Successfully wrote OME-TIFF file with {len(data_to_write.shape)}D shape: {data_to_write.shape}")
-            
-        except Exception as e:
-            logger.warning(f"OME-TIFF write failed ({e}), trying ImageJ format fallback")
-            
-            # Fall back to ImageJ compatible format
-            with TiffWriter(self.output_path, bigtiff=True, imagej=True) as tif:
-                # For ImageJ, we need to decide what format works best
-                if len(data_to_write.shape) >= 3:
-                    # Keep the existing shape if it's 3D or more
-                    imgj_metadata = {
-                        'description': metadata.get('description', 'ND2 export'),
-                        'axes': 'TYX' if len(data_to_write.shape) == 3 else 'TCYX'
-                    }
-                    return
-                else:
-                    # Flatten everything to 2D as last resort
-                    flattened = data_to_write.reshape(-1, y, x)
-                    imgj_metadata = {
-                        'description': metadata.get('description', 'ND2 export'),
-                        'axes': 'YX'
-                    }
-                    tif.write(flattened, metadata=imgj_metadata)
-                    logger.info(f"Successfully flattened to ImageJ 2D TIFF with shape: {flattened.shape}")
+
+        # Write normal TIFF file with ImageJ format
+        imwrite(
+            self.output_path,
+            data_to_write,
+            imagej=True,
+            bigtiff=True,
+            metadata={'Description': metadata.get('description', 'ND2 export')}
+        )
+
+        logger.info(f"Successfully wrote TIFF file with shape: {data_to_write.shape} (T={t}, C={p*c}, Y={y}, X={x})")

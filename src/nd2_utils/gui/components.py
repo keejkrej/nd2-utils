@@ -205,7 +205,7 @@ class OutputSelectionWidget(QGroupBox):
         layout = QHBoxLayout(self)
         
         self.output_path_edit = QLineEdit()
-        self.output_path_edit.setPlaceholderText("Select output OME-TIFF file...")
+        self.output_path_edit.setPlaceholderText("Select output TIFF file...")
         self.output_path_edit.setReadOnly(True)
         
         self.browse_btn = QPushButton("Browse")
@@ -217,11 +217,11 @@ class OutputSelectionWidget(QGroupBox):
     
     def browse_output_file(self):
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save OME-TIFF File", "", "OME-TIFF Files (*.ome.tif *.ome.tiff);;TIFF Files (*.tif *.tiff)"
+            self, "Save TIFF File", "", "TIFF Files (*.tif *.tiff)"
         )
         if file_path:
-            if not file_path.lower().endswith(('.ome.tif', '.ome.tiff', '.tif', '.tiff')):
-                file_path += '.ome.tif'
+            if not file_path.lower().endswith(('.tif', '.tiff')):
+                file_path += '.tif'
             self.output_path_edit.setText(file_path)
     
     def get_output_path(self):
@@ -290,7 +290,7 @@ class ExportButtonWidget(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
         
-        self.export_btn = QPushButton("Export to OME-TIFF")
+        self.export_btn = QPushButton("Export to TIFF")
         self.export_btn.clicked.connect(self.request_export)
         
         layout.addWidget(self.export_btn)

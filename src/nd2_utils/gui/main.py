@@ -1,5 +1,5 @@
 """
-Main GUI application for ND2 to OME-TIFF converter.
+Main GUI application for ND2 to TIFF converter.
 """
 
 import sys
@@ -37,7 +37,7 @@ class ND2ViewerApp(QMainWindow):
     
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle("ND2 to OME-TIFF Converter")
+        self.setWindowTitle("ND2 to TIFF Converter")
         self.setGeometry(100, 100, 600, 400)
         
         # Central widget
@@ -59,7 +59,7 @@ class ND2ViewerApp(QMainWindow):
         
         # Export tab
         export_widget = self.create_export_tab()
-        self.tab_widget.addTab(export_widget, "Export OME-TIFF")
+        self.tab_widget.addTab(export_widget, "Export TIFF")
         
         # Add to main layout
         main_layout.addWidget(self.file_widget)
@@ -125,7 +125,7 @@ class ND2ViewerApp(QMainWindow):
         self.export_widget.setEnabled(not exporting)
         if exporting:
             self.progress_widget.start_progress()
-            self.set_status("Exporting to OME-TIFF...")
+            self.set_status("Exporting to TIFF...")
         else:
             self.progress_widget.hide_progress()
     
